@@ -1,0 +1,51 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+- task: UniversalPackages@0
+  displayName: Get Venafi Client
+  inputs:
+    command: download
+    vstsFeed: 'cspclients'
+    vstsFeedPackage: 'venafi-csp-win'
+    vstsPackageVersion: '*'
+    downloadDirectory: '$(Build.SourcesDirectory)'
+
+- task: PowerShell@2
+  displayName: Install and configure Venafi Client
+  inputs:
+    targetType: 'inline'
+    script: |
+      & msiexec.exe /i $(Build.SourcesDirectory)\VenafiCodeSigningClients-21.3.0-x64.msi /l*v c:\temp\log.txt /qn | out-host
+      & 'C:\Program Files\Venafi CodeSign Protect\CspConfig.exe' getgrant -AuthURL:$(VENAFITPPURL)/vedauth -hsmurl:$(VENAFITPPURL)/vedhsm -username:$(CSPUSER) -password:$(SIGNPWD)
+      & 'C:\Program Files\Venafi CodeSign Protect\CspConfig.exe' sync
+      & 'C:\Program Files\Venafi CodeSign Protect\CspConfig.exe' list
+  
+- task: PowerShell@2
+  displayName: Sign Powershell Scripts
+  inputs:
+    targetType: 'inline'
+    script: |
+      & 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x64\signtool.exe' sign /fd SHA256 /n "Sample Code Signers" .\scripts\*.ps1
+  
+
+- task: CopyFiles@2
+  displayName: Stage Signed Powershell Scripts
+  inputs:
+    sourceFolder: '$(Build.SourcesDirectory)/scripts'
+    contents: '**/*.ps1'
+    targetFolder: '$(Build.ArtifactStagingDirectory)'
+    
+- task: PublishBuildArtifacts@1
+  displayName: Publish Scripts
+  inputs:
+    pathToPublish: '$(Build.ArtifactStagingDirectory)'
+    artifactName: Signed Powershell Scripts
